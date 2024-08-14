@@ -4,7 +4,12 @@ import sys
 import numpy as np
 import pytest
 
-from pandas.compat import PYPY
+from pandas._config import using_string_dtype
+
+from pandas.compat import (
+    HAS_PYARROW,
+    PYPY,
+)
 
 from pandas import (
     Categorical,
@@ -97,7 +102,6 @@ class TestCategoricalAnalytics:
         "values, categories",
         [(["a", "b", "c", np.nan], list("cba")), ([1, 2, 3, np.nan], [3, 2, 1])],
     )
-    @pytest.mark.parametrize("skipna", [True, False])
     @pytest.mark.parametrize("function", ["min", "max"])
     def test_min_max_with_nan(self, values, categories, function, skipna):
         # GH 25303
@@ -111,7 +115,6 @@ class TestCategoricalAnalytics:
             assert result == expected
 
     @pytest.mark.parametrize("function", ["min", "max"])
-    @pytest.mark.parametrize("skipna", [True, False])
     def test_min_max_only_nan(self, function, skipna):
         # https://github.com/pandas-dev/pandas/issues/33450
         cat = Categorical([np.nan], categories=[1, 2], ordered=True)
@@ -296,6 +299,9 @@ class TestCategoricalAnalytics:
         exp = 3 + 3 * 8  # 3 int8s for values + 3 int64s for categories
         assert cat.nbytes == exp
 
+    @pytest.mark.xfail(
+        using_string_dtype() and HAS_PYARROW, reason="TODO(infer_string)"
+    )
     def test_memory_usage(self):
         cat = Categorical([1, 2, 3])
 

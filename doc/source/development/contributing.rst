@@ -19,7 +19,7 @@ Bug reports and enhancement requests
 ====================================
 
 Bug reports and enhancement requests are an important part of making pandas more stable and
-are curated though Github issues. When reporting and issue or request, please select the `appropriate
+are curated though Github issues. When reporting an issue or request, please select the `appropriate
 category and fill out the issue form fully <https://github.com/pandas-dev/pandas/issues/new/choose>`_
 to ensure others and the core development team can fully understand the scope of the issue.
 
@@ -74,7 +74,6 @@ If you are new to Git, you can reference some of these resources for learning Gi
 to the :ref:`contributor community <community>` for help if needed:
 
 * `Git documentation <https://git-scm.com/doc>`_.
-* `Numpy's Git resources <https://numpy.org/doc/stable/dev/gitwash/git_resources.html>`_ tutorial.
 
 Also, the project follows a forking workflow further described on this page whereby
 contributors fork the repository, make changes and then create a pull request.

@@ -3,9 +3,13 @@ import re
 import numpy as np
 import pytest
 
+from pandas._config import using_string_dtype
+
 import pandas as pd
 from pandas import (
     DataFrame,
+    Index,
+    date_range,
     lreshape,
     melt,
     wide_to_long,
@@ -15,7 +19,11 @@ import pandas._testing as tm
 
 @pytest.fixture
 def df():
-    res = tm.makeTimeDataFrame()[:10]
+    res = DataFrame(
+        np.random.default_rng(2).standard_normal((10, 4)),
+        columns=Index(list("ABCD"), dtype=object),
+        index=date_range("2000-01-01", periods=10, freq="B"),
+    )
     res["id1"] = (res["A"] > 0).astype(np.int64)
     res["id2"] = (res["B"] > 0).astype(np.int64)
     return res
@@ -75,6 +83,7 @@ class TestMelt:
         result2 = df.melt(id_vars=["id1", "id2"])
         assert result2.columns.tolist() == ["id1", "id2", "variable", "value"]
 
+    @pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)")
     def test_value_vars(self, df):
         result3 = df.melt(id_vars=["id1", "id2"], value_vars="A")
         assert len(result3) == 10
@@ -91,6 +100,7 @@ class TestMelt:
         )
         tm.assert_frame_equal(result4, expected4)
 
+    @pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)")
     @pytest.mark.parametrize("type_", (tuple, list, np.array))
     def test_value_vars_types(self, type_, df):
         # GH 15348
@@ -127,25 +137,21 @@ class TestMelt:
                 ["A"],
                 ["B"],
                 0,
-                DataFrame(
-                    {
-                        "A": {0: 1.067683, 1: -1.321405, 2: -0.807333},
-                        "CAP": {0: "B", 1: "B", 2: "B"},
-                        "value": {0: -1.110463, 1: 0.368915, 2: 0.08298},
-                    }
-                ),
+                {
+                    "A": {0: 1.067683, 1: -1.321405, 2: -0.807333},
+                    "CAP": {0: "B", 1: "B", 2: "B"},
+                    "value": {0: -1.110463, 1: 0.368915, 2: 0.08298},
+                },
             ),
             (
                 ["a"],
                 ["b"],
                 1,
-                DataFrame(
-                    {
-                        "a": {0: 1.067683, 1: -1.321405, 2: -0.807333},
-                        "low": {0: "b", 1: "b", 2: "b"},
-                        "value": {0: -1.110463, 1: 0.368915, 2: 0.08298},
-                    }
-                ),
+                {
+                    "a": {0: 1.067683, 1: -1.321405, 2: -0.807333},
+                    "low": {0: "b", 1: "b", 2: "b"},
+                    "value": {0: -1.110463, 1: 0.368915, 2: 0.08298},
+                },
             ),
         ],
     )
@@ -153,6 +159,7 @@ class TestMelt:
         self, id_vars, value_vars, col_level, expected, df1
     ):
         result = df1.melt(id_vars, value_vars, col_level=col_level)
+        expected = DataFrame(expected)
         tm.assert_frame_equal(result, expected)
 
     @pytest.mark.parametrize(
@@ -171,6 +178,7 @@ class TestMelt:
         with pytest.raises(ValueError, match=msg):
             df1.melt(id_vars=id_vars, value_vars=value_vars)
 
+    @pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)")
     def test_custom_var_name(self, df, var_name):
         result5 = df.melt(var_name=var_name)
         assert result5.columns.tolist() == ["var", "value"]
@@ -198,6 +206,7 @@ class TestMelt:
         )
         tm.assert_frame_equal(result9, expected9)
 
+    @pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)")
     def test_custom_value_name(self, df, value_name):
         result10 = df.melt(value_name=value_name)
         assert result10.columns.tolist() == ["variable", "val"]
@@ -227,6 +236,7 @@ class TestMelt:
         )
         tm.assert_frame_equal(result14, expected14)
 
+    @pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)")
     def test_custom_var_and_value_name(self, df, value_name, var_name):
         result15 = df.melt(var_name=var_name, value_name=value_name)
         assert result15.columns.tolist() == ["var", "val"]
@@ -281,13 +291,14 @@ class TestMelt:
     @pytest.mark.parametrize(
         "col",
         [
-            pd.Series(pd.date_range("2010", periods=5, tz="US/Pacific")),
-            pd.Series(["a", "b", "c", "a", "d"], dtype="category"),
-            pd.Series([0, 1, 0, 0, 0]),
+            date_range("2010", periods=5, tz="US/Pacific"),
+            pd.Categorical(["a", "b", "c", "a", "d"]),
+            [0, 1, 0, 0, 0],
         ],
     )
     def test_pandas_dtypes(self, col):
         # GH 15785
+        col = pd.Series(col)
         df = DataFrame(
             {"klass": range(5), "col": col, "attr1": [1, 0, 0, 0, 0], "attr2": col}
         )
@@ -343,14 +354,14 @@ class TestMelt:
             df.melt(["a", "b", "not_here", "or_there"], ["c", "d"])
 
         # Multiindex melt fails if column is missing from multilevel melt
-        multi = df.copy()
-        multi.columns = [list("ABCD"), list("abcd")]
+        df.columns = [list("ABCD"), list("abcd")]
         with pytest.raises(KeyError, match=msg):
-            multi.melt([("E", "a")], [("B", "b")])
+            df.melt([("E", "a")], [("B", "b")])
         # Multiindex fails if column is missing from single level melt
         with pytest.raises(KeyError, match=msg):
-            multi.melt(["A"], ["F"], col_level=0)
+            df.melt(["A"], ["F"], col_level=0)
 
+    @pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)")
     def test_melt_mixed_int_str_id_vars(self):
         # GH 29718
         df = DataFrame({0: ["foo"], "a": ["bar"], "b": [1], "d": [2]})
@@ -396,11 +407,11 @@ class TestMelt:
 
     def test_ignore_index_name_and_type(self):
         # GH 17440
-        index = pd.Index(["foo", "bar"], dtype="category", name="baz")
+        index = Index(["foo", "bar"], dtype="category", name="baz")
         df = DataFrame({"x": [0, 1], "y": [2, 3]}, index=index)
         result = melt(df, ignore_index=False)
 
-        expected_index = pd.Index(["foo", "bar"] * 2, dtype="category", name="baz")
+        expected_index = Index(["foo", "bar"] * 2, dtype="category", name="baz")
         expected = DataFrame(
             {"variable": ["x", "x", "y", "y"], "value": [0, 1, 2, 3]},
             index=expected_index,
@@ -529,6 +540,26 @@ class TestMelt:
         )
         with pytest.raises(ValueError, match=r".* must be a scalar."):
             df.melt(id_vars=["a"], var_name=[1, 2])
+
+    def test_melt_multiindex_columns_var_name(self):
+        # GH 58033
+        df = DataFrame({("A", "a"): [1], ("A", "b"): [2]})
+
+        expected = DataFrame(
+            [("A", "a", 1), ("A", "b", 2)], columns=["first", "second", "value"]
+        )
+
+        tm.assert_frame_equal(df.melt(var_name=["first", "second"]), expected)
+        tm.assert_frame_equal(df.melt(var_name=["first"]), expected[["first", "value"]])
+
+    def test_melt_multiindex_columns_var_name_too_many(self):
+        # GH 58033
+        df = DataFrame({("A", "a"): [1], ("A", "b"): [2]})
+
+        with pytest.raises(
+            ValueError, match="but the dataframe columns only have 2 levels"
+        ):
+            df.melt(var_name=["first", "second", "third"])
 
 
 class TestLreshape:
@@ -1191,6 +1222,7 @@ class TestWideToLong:
         ):
             df.melt(id_vars="value", value_name="value")
 
+    @pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)", strict=False)
     @pytest.mark.parametrize("dtype", ["O", "string"])
     def test_missing_stubname(self, dtype):
         # GH46044
@@ -1203,7 +1235,7 @@ class TestWideToLong:
             j="num",
             sep="-",
         )
-        index = pd.Index(
+        index = Index(
             [("1", 1), ("2", 1), ("1", 2), ("2", 2)],
             name=("id", "num"),
         )
@@ -1214,3 +1246,34 @@ class TestWideToLong:
         new_level = expected.index.levels[0].astype(dtype)
         expected.index = expected.index.set_levels(new_level, level=0)
         tm.assert_frame_equal(result, expected)
+
+
+@pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)")
+def test_wide_to_long_pyarrow_string_columns():
+    # GH 57066
+    pytest.importorskip("pyarrow")
+    df = DataFrame(
+        {
+            "ID": {0: 1},
+            "R_test1": {0: 1},
+            "R_test2": {0: 1},
+            "R_test3": {0: 2},
+            "D": {0: 1},
+        }
+    )
+    df.columns = df.columns.astype("string[pyarrow_numpy]")
+    result = wide_to_long(
+        df, stubnames="R", i="ID", j="UNPIVOTED", sep="_", suffix=".*"
+    )
+    expected = DataFrame(
+        [[1, 1], [1, 1], [1, 2]],
+        columns=Index(["D", "R"], dtype=object),
+        index=pd.MultiIndex.from_arrays(
+            [
+                [1, 1, 1],
+                Index(["test1", "test2", "test3"], dtype="string[pyarrow_numpy]"),
+            ],
+            names=["ID", "UNPIVOTED"],
+        ),
+    )
+    tm.assert_frame_equal(result, expected)

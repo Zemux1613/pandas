@@ -3,6 +3,8 @@ import re
 import numpy as np
 import pytest
 
+from pandas._config import using_string_dtype
+
 from pandas.compat import PY311
 
 from pandas import (
@@ -18,13 +20,6 @@ from pandas.core.arrays.categorical import recode_for_categories
 
 
 class TestCategoricalAPI:
-    def test_to_list_deprecated(self):
-        # GH#51254
-        cat1 = Categorical(list("acb"), ordered=False)
-        msg = "Categorical.to_list is deprecated and will be removed"
-        with tm.assert_produces_warning(FutureWarning, match=msg):
-            cat1.to_list()
-
     def test_ordered_api(self):
         # GH 9347
         cat1 = Categorical(list("acb"), ordered=False)
@@ -156,6 +151,7 @@ class TestCategoricalAPI:
         with pytest.raises(ValueError, match=msg):
             cat.reorder_categories(new_categories)
 
+    @pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)")
     def test_add_categories(self):
         cat = Categorical(["a", "b", "c", "a"], ordered=True)
         old = cat.copy()
@@ -291,17 +287,16 @@ class TestCategoricalAPI:
             (["a", "b", "c"], ["a", "b"], ["a", "b"]),
             (["a", "b", "c"], ["a", "b"], ["b", "a"]),
             (["b", "a", "c"], ["a", "b"], ["a", "b"]),
-            (["b", "a", "c"], ["a", "b"], ["a", "b"]),
+            (["b", "a", "c"], ["a", "b"], ["b", "a"]),
             # Introduce NaNs
             (["a", "b", "c"], ["a", "b"], ["a"]),
             (["a", "b", "c"], ["a", "b"], ["b"]),
             (["b", "a", "c"], ["a", "b"], ["a"]),
-            (["b", "a", "c"], ["a", "b"], ["a"]),
+            (["b", "a", "c"], ["a", "b"], ["b"]),
             # No overlap
             (["a", "b", "c"], ["a", "b"], ["d", "e"]),
         ],
     )
-    @pytest.mark.parametrize("ordered", [True, False])
     def test_set_categories_many(self, values, categories, new_categories, ordered):
         c = Categorical(values, categories)
         expected = Categorical(values, new_categories, ordered)
@@ -385,7 +380,8 @@ class TestCategoricalAPI:
 
 
 class TestCategoricalAPIWithFactor:
-    def test_describe(self, factor):
+    def test_describe(self):
+        factor = Categorical(["a", "b", "b", "a", "a", "c", "c", "c"], ordered=True)
         # string type
         desc = factor.describe()
         assert factor.ordered

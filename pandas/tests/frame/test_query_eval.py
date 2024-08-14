@@ -3,6 +3,8 @@ import operator
 import numpy as np
 import pytest
 
+from pandas._config import using_string_dtype
+
 from pandas.errors import (
     NumExprClobberingError,
     UndefinedVariableError,
@@ -58,26 +60,26 @@ class TestCompat:
         result = df.query("A>0")
         tm.assert_frame_equal(result, expected1)
         result = df.eval("A+1")
-        tm.assert_series_equal(result, expected2, check_names=False)
+        tm.assert_series_equal(result, expected2)
 
     def test_query_None(self, df, expected1, expected2):
         result = df.query("A>0", engine=None)
         tm.assert_frame_equal(result, expected1)
         result = df.eval("A+1", engine=None)
-        tm.assert_series_equal(result, expected2, check_names=False)
+        tm.assert_series_equal(result, expected2)
 
     def test_query_python(self, df, expected1, expected2):
         result = df.query("A>0", engine="python")
         tm.assert_frame_equal(result, expected1)
         result = df.eval("A+1", engine="python")
-        tm.assert_series_equal(result, expected2, check_names=False)
+        tm.assert_series_equal(result, expected2)
 
     def test_query_numexpr(self, df, expected1, expected2):
         if NUMEXPR_INSTALLED:
             result = df.query("A>0", engine="numexpr")
             tm.assert_frame_equal(result, expected1)
             result = df.eval("A+1", engine="numexpr")
-            tm.assert_series_equal(result, expected2, check_names=False)
+            tm.assert_series_equal(result, expected2)
         else:
             msg = (
                 r"'numexpr' is not installed or an unsupported version. "
@@ -187,6 +189,39 @@ class TestDataFrameEval:
         res = df.eval("c = ((a1 == 'Y') & True)")
         expected = DataFrame({"a1": ["Y", "N"], "c": [True, False]})
         tm.assert_frame_equal(res, expected)
+
+    def test_using_numpy(self, engine, parser):
+        # GH 58041
+        skip_if_no_pandas_parser(parser)
+        df = Series([0.2, 1.5, 2.8], name="a").to_frame()
+        res = df.eval("@np.floor(a)", engine=engine, parser=parser)
+        expected = np.floor(df["a"])
+        tm.assert_series_equal(expected, res)
+
+    def test_eval_simple(self, engine, parser):
+        df = Series([0.2, 1.5, 2.8], name="a").to_frame()
+        res = df.eval("a", engine=engine, parser=parser)
+        expected = df["a"]
+        tm.assert_series_equal(expected, res)
+
+    def test_extension_array_eval(self, engine, parser, request):
+        # GH#58748
+        if engine == "numexpr":
+            mark = pytest.mark.xfail(
+                reason="numexpr does not support extension array dtypes"
+            )
+            request.applymarker(mark)
+        df = DataFrame({"a": pd.array([1, 2, 3]), "b": pd.array([4, 5, 6])})
+        result = df.eval("a / b", engine=engine, parser=parser)
+        expected = Series(pd.array([0.25, 0.40, 0.50]))
+        tm.assert_series_equal(result, expected)
+
+    def test_complex_eval(self, engine, parser):
+        # GH#21374
+        df = DataFrame({"a": [1 + 2j], "b": [1 + 1j]})
+        result = df.eval("a/b", engine=engine, parser=parser)
+        expected = Series([1.5 + 0.5j])
+        tm.assert_series_equal(result, expected)
 
 
 class TestDataFrameQueryWithMultiIndex:
@@ -360,8 +395,11 @@ class TestDataFrameQueryWithMultiIndex:
         tm.assert_frame_equal(res, exp)
 
     def test_query_multiindex_get_index_resolvers(self):
-        df = tm.makeCustomDataframe(
-            10, 3, r_idx_nlevels=2, r_idx_names=["spam", "eggs"]
+        df = DataFrame(
+            np.ones((10, 3)),
+            index=MultiIndex.from_arrays(
+                [range(10) for _ in range(2)], names=["spam", "eggs"]
+            ),
         )
         resolvers = df._get_index_resolvers()
 
@@ -377,7 +415,7 @@ class TestDataFrameQueryWithMultiIndex:
             "columns": col_series,
             "spam": to_series(df.index, "spam"),
             "eggs": to_series(df.index, "eggs"),
-            "C0": col_series,
+            "clevel_0": col_series,
         }
         for k, v in resolvers.items():
             if isinstance(v, Index):
@@ -723,11 +761,12 @@ class TestDataFrameQueryNumExprPandas:
         result = df.query(q, engine=engine, parser=parser)
         tm.assert_frame_equal(result, expected)
 
+    @pytest.mark.xfail(using_string_dtype(), reason="TODO(infer_string)")
     def test_check_tz_aware_index_query(self, tz_aware_fixture):
         # https://github.com/pandas-dev/pandas/issues/29463
         tz = tz_aware_fixture
         df_index = date_range(
-            start="2019-01-01", freq="1d", periods=10, tz=tz, name="time"
+            start="2019-01-01", freq="1D", periods=10, tz=tz, name="time"
         )
         expected = DataFrame(index=df_index)
         df = DataFrame(index=df_index)
@@ -946,8 +985,8 @@ class TestDataFrameQueryStrings:
             ops = 2 * ([eq] + [ne])
             msg = r"'(Not)?In' nodes are not implemented"
 
-            for lhs, op, rhs in zip(lhs, ops, rhs):
-                ex = f"{lhs} {op} {rhs}"
+            for lh, op_, rh in zip(lhs, ops, rhs):
+                ex = f"{lh} {op_} {rh}"
                 with pytest.raises(NotImplementedError, match=msg):
                     df.query(
                         ex,
@@ -987,8 +1026,8 @@ class TestDataFrameQueryStrings:
             ops = 2 * ([eq] + [ne])
             msg = r"'(Not)?In' nodes are not implemented"
 
-            for lhs, op, rhs in zip(lhs, ops, rhs):
-                ex = f"{lhs} {op} {rhs}"
+            for lh, ops_, rh in zip(lhs, ops, rhs):
+                ex = f"{lh} {ops_} {rh}"
                 with pytest.raises(NotImplementedError, match=msg):
                     df.query(ex, engine=engine, parser=parser)
         else:
@@ -1032,7 +1071,7 @@ class TestDataFrameQueryStrings:
             with pytest.raises(NotImplementedError, match=msg):
                 df.query("a in b and c < d", parser=parser, engine=engine)
 
-    def test_object_array_eq_ne(self, parser, engine):
+    def test_object_array_eq_ne(self, parser, engine, using_infer_string):
         df = DataFrame(
             {
                 "a": list("aaaabbbbcccc"),
@@ -1041,11 +1080,14 @@ class TestDataFrameQueryStrings:
                 "d": np.random.default_rng(2).integers(9, size=12),
             }
         )
-        res = df.query("a == b", parser=parser, engine=engine)
+        warning = RuntimeWarning if using_infer_string and engine == "numexpr" else None
+        with tm.assert_produces_warning(warning):
+            res = df.query("a == b", parser=parser, engine=engine)
         exp = df[df.a == df.b]
         tm.assert_frame_equal(res, exp)
 
-        res = df.query("a != b", parser=parser, engine=engine)
+        with tm.assert_produces_warning(warning):
+            res = df.query("a != b", parser=parser, engine=engine)
         exp = df[df.a != df.b]
         tm.assert_frame_equal(res, exp)
 
@@ -1084,12 +1126,16 @@ class TestDataFrameQueryStrings:
             [">=", operator.ge],
         ],
     )
-    def test_query_lex_compare_strings(self, parser, engine, op, func):
+    def test_query_lex_compare_strings(
+        self, parser, engine, op, func, using_infer_string
+    ):
         a = Series(np.random.default_rng(2).choice(list("abcde"), 20))
         b = Series(np.arange(a.size))
         df = DataFrame({"X": a, "Y": b})
 
-        res = df.query(f'X {op} "d"', engine=engine, parser=parser)
+        warning = RuntimeWarning if using_infer_string and engine == "numexpr" else None
+        with tm.assert_produces_warning(warning):
+            res = df.query(f'X {op} "d"', engine=engine, parser=parser)
         expected = df[func(df.X, "d")]
         tm.assert_frame_equal(res, expected)
 
@@ -1134,6 +1180,7 @@ class TestDataFrameQueryStrings:
         df_expected = DataFrame({"a": expected}, dtype="string")
         df_expected.index = df_expected.index.astype("int64")
         df = DataFrame({"a": in_list}, dtype="string")
+        df.index = Index(list(df.index), dtype=df.index.dtype)
         res1 = df.query("a == 'asdf'", parser=parser, engine=engine)
         res2 = df[df["a"] == "asdf"]
         res3 = df.query("a <= 'asdf'", parser=parser, engine=engine)
@@ -1163,7 +1210,7 @@ class TestDataFrameEvalWithFrame:
     @pytest.mark.parametrize("op", ["+", "-", "*", "/"])
     def test_invalid_type_for_operator_raises(self, parser, engine, op):
         df = DataFrame({"a": [1, 2], "b": ["c", "d"]})
-        msg = r"unsupported operand type\(s\) for .+: '.+' and '.+'"
+        msg = r"unsupported operand type\(s\) for .+: '.+' and '.+'|Cannot"
 
         with pytest.raises(TypeError, match=msg):
             df.eval(f"a {op} b", engine=engine, parser=parser)
@@ -1177,7 +1224,7 @@ class TestDataFrameQueryBacktickQuoting:
         by backticks. The last two columns cannot be escaped by backticks
         and should raise a ValueError.
         """
-        yield DataFrame(
+        return DataFrame(
             {
                 "A": [1, 2, 3],
                 "B B": [3, 2, 1],
@@ -1376,12 +1423,12 @@ class TestDataFrameQueryBacktickQuoting:
         if dtype == "int64[pyarrow]":
             pytest.importorskip("pyarrow")
         # GH#50261
-        df = DataFrame({"a": Series([1, 2], dtype=dtype)})
+        df = DataFrame({"a": [1, 2]}, dtype=dtype)
         ref = {2}  # noqa: F841
         warning = RuntimeWarning if dtype == "Int64" and NUMEXPR_INSTALLED else None
         with tm.assert_produces_warning(warning):
             result = df.query("a in @ref")
-        expected = DataFrame({"a": Series([2], dtype=dtype, index=[1])})
+        expected = DataFrame({"a": [2]}, index=range(1, 2), dtype=dtype)
         tm.assert_frame_equal(result, expected)
 
     @pytest.mark.parametrize("engine", ["python", "numexpr"])
@@ -1400,8 +1447,16 @@ class TestDataFrameQueryBacktickQuoting:
             result = df.query("A == B", engine=engine)
         expected = DataFrame(
             {
-                "A": Series([1, 2], dtype="Int64", index=[0, 2]),
-                "B": Series([1, 2], dtype=dtype, index=[0, 2]),
+                "A": Series([1, 2], dtype="Int64", index=range(0, 4, 2)),
+                "B": Series([1, 2], dtype=dtype, index=range(0, 4, 2)),
             }
         )
+        tm.assert_frame_equal(result, expected)
+
+    def test_all_nat_in_object(self):
+        # GH#57068
+        now = pd.Timestamp.now("UTC")  # noqa: F841
+        df = DataFrame({"a": pd.to_datetime([None, None], utc=True)}, dtype=object)
+        result = df.query("a > @now")
+        expected = DataFrame({"a": []}, dtype=object)
         tm.assert_frame_equal(result, expected)
